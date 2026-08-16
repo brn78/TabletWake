@@ -1,0 +1,14 @@
+<resources>
+    <color name="window_background">#F7F4EE</color>
+    <color name="surface">#FFFCF7</color>
+    <color name="surface_alt">#EDE9F5</color>
+    <color name="text_primary">#27303A</color>
+    <color name="text_secondary">#66717C</color>
+    <color name="accent">#686A9F</color>
+    <color name="accent_pressed">#555782</color>
+    <color name="accent_text">#FFFFFF</color>
+    <color name="success">#4D8067</color>
+    <color name="warning">#A56843</color>
+    <color name="outline">#DDD7CC</color>
+    <color name="transparent">#00000000</color>
+</resources>
