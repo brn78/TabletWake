@@ -19,8 +19,8 @@ android {
         applicationId = "com.tabletwake"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -38,8 +38,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Temporaneamente disattivati: la stabilità sui firmware OEM viene prima
+            // della dimensione dell'APK. Verranno riattivati dopo i test sul tablet.
+            isMinifyEnabled = false
+            isShrinkResources = false
             signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

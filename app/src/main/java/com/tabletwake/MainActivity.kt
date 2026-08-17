@@ -62,8 +62,8 @@ class MainActivity : Activity() {
         configureCapabilities()
         configureSettings()
         configureActions()
-        AppUpdater.configurePeriodicChecks(this)
         renderStatus()
+        window.decorView.post { configureAutomaticUpdatesSafely() }
     }
 
     override fun onStart() {
@@ -179,10 +179,7 @@ class MainActivity : Activity() {
         automaticUpdates.isChecked = AppPreferences.automaticUpdates(this)
         automaticUpdates.setOnCheckedChangeListener { _, enabled ->
             AppPreferences.setAutomaticUpdates(this, enabled)
-            AppUpdater.configurePeriodicChecks(this)
-            updateStatus.setText(
-                if (enabled) R.string.updates_enabled else R.string.updates_disabled
-            )
+            configureAutomaticUpdatesSafely()
         }
         updateStatus.setText(
             if (automaticUpdates.isChecked) R.string.updates_enabled else R.string.updates_disabled
@@ -333,6 +330,18 @@ class MainActivity : Activity() {
         } else {
             getString(R.string.screen_timeout_unknown)
         }
+    }
+
+    private fun configureAutomaticUpdatesSafely() {
+        val enabled = AppPreferences.automaticUpdates(this)
+        val configured = AppUpdater.configurePeriodicChecks(applicationContext)
+        updateStatus.setText(
+            when {
+                !enabled -> R.string.updates_disabled
+                configured -> R.string.updates_enabled
+                else -> R.string.updates_scheduler_unavailable
+            }
+        )
     }
 
     private fun resumePersistentMonitoring() {

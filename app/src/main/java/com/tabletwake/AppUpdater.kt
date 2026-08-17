@@ -39,22 +39,23 @@ object AppUpdater {
     private const val CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
     private val executor = Executors.newSingleThreadExecutor()
 
-    fun configurePeriodicChecks(context: Context) {
-        val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (!AppPreferences.automaticUpdates(context)) {
+    fun configurePeriodicChecks(context: Context): Boolean = runCatching {
+        val appContext = context.applicationContext
+        val scheduler = appContext.getSystemService(JobScheduler::class.java)
+        if (!AppPreferences.automaticUpdates(appContext)) {
             scheduler.cancel(UPDATE_JOB_ID)
-            return
+            return@runCatching true
         }
         val job = JobInfo.Builder(
             UPDATE_JOB_ID,
-            ComponentName(context, UpdateJobService::class.java)
+            ComponentName(appContext, UpdateJobService::class.java)
         )
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
             .setPeriodic(CHECK_INTERVAL_MS)
             .setPersisted(true)
             .build()
-        scheduler.schedule(job)
-    }
+        scheduler.schedule(job) == JobScheduler.RESULT_SUCCESS
+    }.getOrDefault(false)
 
     fun check(
         context: Context,

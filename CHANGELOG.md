@@ -1,5 +1,12 @@
 # Cronologia versioni
 
+## 1.1.1 — 17 agosto 2026
+
+- Corretto il crash all’avvio riscontrato su alcuni firmware Android.
+- Pianificazione degli aggiornamenti spostata fuori dal percorso critico di apertura.
+- Eventuali rifiuti del `JobScheduler` non chiudono più l’app: resta disponibile il controllo manuale.
+- Minificazione e riduzione risorse temporaneamente disattivate per la massima compatibilità OEM.
+
 ## 1.1.0 — 16 agosto 2026
 
 - Ripristino persistente del rilevamento dopo il riavvio.

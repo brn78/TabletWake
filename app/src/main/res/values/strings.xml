@@ -41,6 +41,7 @@
     <string name="automatic_updates">Aggiornamenti automatici</string>
     <string name="updates_enabled">Controllo giornaliero attivo · installazione con conferma Android.</string>
     <string name="updates_disabled">Controllo automatico disattivato.</string>
+    <string name="updates_scheduler_unavailable">Controllo periodico non disponibile su questo tablet. Puoi usare “Controlla ora”.</string>
     <string name="updates_checking">Controllo aggiornamenti…</string>
     <string name="check_updates">Controlla ora</string>
     <string name="public_repository">Repository pubblico · github.com/brn78/TabletWake</string>
