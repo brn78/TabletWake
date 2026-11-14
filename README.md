@@ -64,7 +64,22 @@ Il progetto usa Android Gradle Plugin 9.3, Gradle 9.5, JDK 17, `compileSdk 36` e
 ./gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-Per distribuire aggiornamenti installabili sopra una versione esistente, tutte le release devono essere firmate con la stessa chiave privata. La chiave non deve essere aggiunta al repository.
+Per distribuire aggiornamenti installabili sopra una versione esistente, tutte le release devono essere firmate con la stessa chiave privata. La chiave non deve essere aggiunta al repository: resta in `.signing/` (esclusa da git), da conservare anche in una copia di sicurezza fuori dal PC.
+
+## Pubblicare una release
+
+Le release sono compilate e firmate da GitHub Actions ([`release.yml`](.github/workflows/release.yml)).
+
+1. Solo la prima volta, o quando cambia la chiave, caricare la chiave nei segreti del repository:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tools\set-signing-secrets.ps1
+   ```
+
+2. Aggiornare `versionCode` e `versionName` in `app/build.gradle.kts` e aggiungere la sezione della versione in `CHANGELOG.md`.
+3. Inviare su `main` e creare il tag della versione, per esempio `git tag v1.1.2` seguito da `git push origin v1.1.2`.
+4. Il workflow esegue test e lint, firma l’APK, ne verifica la firma, calcola lo SHA-256 e pubblica la release con le note prese dal `CHANGELOG.md`.
+5. Aggiornare `version.json` con il blocco riportato nel riepilogo del workflow: da quel momento i tablet ricevono l’aggiornamento.
 
 ## Diritti
 

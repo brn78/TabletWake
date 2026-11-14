@@ -9,6 +9,8 @@
 - Interfaccia: il pulsante degli aggiornamenti resta disattivato durante il controllo e il pulsante di avvio si disattiva se il tablet non ha né fotocamera frontale né sensore di prossimità.
 - Testi di notifiche ed errori spostati nelle risorse dell’app.
 - Nuovi test per il rilevatore di movimento.
+- APK firmato con una nuova chiave: chi ha la 1.1.1 deve disinstallarla e installare questa versione a mano. Dalla 1.1.2 in poi gli aggiornamenti tornano a installarsi sopra la versione esistente.
+- Release compilate e firmate da GitHub Actions a ogni tag di versione.
 
 ## 1.1.1 — 17 agosto 2026
 

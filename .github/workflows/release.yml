@@ -1,0 +1,129 @@
+name: Release
+
+# Compila, firma e pubblica l'APK quando viene inviato un tag vX.Y.Z.
+# La chiave di firma arriva dai segreti del repository (vedi tools/set-signing-secrets.ps1).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag già presente da pubblicare (es. v1.1.2)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Controlla che il tag corrisponda alla versione dell'app
+        run: |
+          VERSION_NAME=$(sed -n 's/^ *versionName = "\(.*\)".*/\1/p' app/build.gradle.kts)
+          if [ "v$VERSION_NAME" != "$TAG" ]; then
+            echo "::error::Il tag $TAG non corrisponde a versionName $VERSION_NAME in app/build.gradle.kts"
+            exit 1
+          fi
+          if ! grep -q "^## $VERSION_NAME " CHANGELOG.md; then
+            echo "::error::Manca la sezione '## $VERSION_NAME' nel CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Prepara la chiave di firma
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Segreti di firma mancanti: eseguire tools/set-signing-secrets.ps1"
+            exit 1
+          fi
+          mkdir -p .signing
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > .signing/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > .signing/keystore.properties
+
+      - name: Test, lint e build firmata
+        run: ./gradlew testDebugUnitTest lintDebug assembleRelease
+
+      - name: Verifica la firma e calcola lo SHA-256
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::APK firmato non trovato: $APK"
+            exit 1
+          fi
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          cp "$APK" TabletWake.apk
+          echo "SHA256=$(sha256sum TabletWake.apk | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+
+      - name: Prepara le note di rilascio dal CHANGELOG
+        run: |
+          VERSION_NAME="${TAG#v}"
+          awk -v heading="## $VERSION_NAME " 'index($0, heading) == 1 { found = 1; next } /^## / && found { exit } found' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "### Installazione"
+            echo
+            echo "Scarica **TabletWake.apk** qui sotto e installalo sul tablet."
+            echo
+            echo "SHA-256: \`$SHA256\`"
+          } >> notes.md
+          cat notes.md
+
+      - name: Pubblica la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" TabletWake.apk \
+            --verify-tag \
+            --title "Tablet Wake ${TAG#v}" \
+            --notes-file notes.md
+
+      - name: Riepilogo per version.json
+        run: |
+          VERSION_CODE=$(sed -n 's/^ *versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
+          {
+            echo "### version.json"
+            echo
+            echo "Da aggiornare su main solo quando i tablet devono ricevere questa versione:"
+            echo
+            echo '```json'
+            echo "{"
+            echo "  \"versionCode\": $VERSION_CODE,"
+            echo "  \"versionName\": \"${TAG#v}\","
+            echo "  \"apkUrl\": \"https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/TabletWake.apk\","
+            echo "  \"sha256\": \"$SHA256\""
+            echo "}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Elimina la chiave dal runner
+        if: always()
+        run: rm -rf .signing
