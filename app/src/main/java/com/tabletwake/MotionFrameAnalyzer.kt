@@ -10,6 +10,7 @@ class MotionFrameAnalyzer(
     private val onMotion: () -> Unit
 ) : ImageAnalysis.Analyzer {
     private val detector = MotionDetector(sensitivity)
+    private val frame = IntArray(GRID_WIDTH * GRID_HEIGHT)
     private var lastAnalysisAt = 0L
 
     override fun analyze(image: ImageProxy) {
@@ -20,19 +21,24 @@ class MotionFrameAnalyzer(
                 return
             }
             if (now - lastAnalysisAt < ANALYSIS_INTERVAL_MS) return
+            if (image.width <= 0 || image.height <= 0) return
             lastAnalysisAt = now
 
             val yPlane = image.planes.firstOrNull() ?: return
             val buffer = yPlane.buffer
-            val frame = IntArray(GRID_WIDTH * GRID_HEIGHT)
+            val limit = buffer.limit()
 
             for (gridY in 0 until GRID_HEIGHT) {
                 val sourceY = gridY * image.height / GRID_HEIGHT
+                val rowOffset = gridY * GRID_WIDTH
+                val sourceRowOffset = sourceY * yPlane.rowStride
                 for (gridX in 0 until GRID_WIDTH) {
                     val sourceX = gridX * image.width / GRID_WIDTH
-                    val index = sourceY * yPlane.rowStride + sourceX * yPlane.pixelStride
-                    if (index < buffer.limit()) {
-                        frame[gridY * GRID_WIDTH + gridX] = buffer.get(index).toInt() and 0xFF
+                    val index = sourceRowOffset + sourceX * yPlane.pixelStride
+                    frame[rowOffset + gridX] = if (index in 0 until limit) {
+                        buffer.get(index).toInt() and 0xFF
+                    } else {
+                        0
                     }
                 }
             }

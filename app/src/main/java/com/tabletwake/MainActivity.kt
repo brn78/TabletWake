@@ -82,6 +82,11 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
     private fun configureInsets() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val root = findViewById<View>(android.R.id.content)
@@ -204,9 +209,11 @@ class MainActivity : Activity() {
             ).show()
             handler.postDelayed({
                 if (!WakeController.wakeScreen(applicationContext)) {
-                    runOnUiThread {
-                        Toast.makeText(this, R.string.screen_already_on, Toast.LENGTH_SHORT).show()
-                    }
+                    Toast.makeText(
+                        applicationContext,
+                        R.string.screen_already_on,
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }, 5_000L)
         }
@@ -225,10 +232,14 @@ class MainActivity : Activity() {
                 .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
         }
 
-        findViewById<Button>(R.id.updateButton).setOnClickListener {
+        val updateButton = findViewById<Button>(R.id.updateButton)
+        updateButton.setOnClickListener {
+            updateButton.isEnabled = false
             updateStatus.setText(R.string.updates_checking)
             AppUpdater.check(this, automaticDownload = true) { result ->
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    updateButton.isEnabled = true
                     updateStatus.text = result.message
                     Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
                 }
@@ -294,11 +305,13 @@ class MainActivity : Activity() {
     private fun renderStatus() {
         val running = WakeMonitorService.isRunning
         val controlsEnabled = !running
+        val hasAnySensor = capabilities.hasFrontCamera || capabilities.proximitySensor != null
         modeGroup.isEnabled = controlsEnabled
         cameraMode.isEnabled = controlsEnabled && capabilities.hasFrontCamera
         proximityMode.isEnabled = controlsEnabled && capabilities.proximitySensor != null
         sensitivity.isEnabled = controlsEnabled
         screenPause.isEnabled = controlsEnabled
+        startStopButton.isEnabled = running || hasAnySensor
         startStopButton.setText(if (running) R.string.stop_detection else R.string.start_detection)
 
         if (running) {

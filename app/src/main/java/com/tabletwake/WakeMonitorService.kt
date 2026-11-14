@@ -42,7 +42,9 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
     private var cameraProvider: ProcessCameraProvider? = null
     private var activeSensor: Sensor? = null
     private var monitoringMode: DetectionMode? = null
+    @Volatile
     private var lastWakeElapsed = 0L
+    @Volatile
     private var pauseUntilElapsed = 0L
     private var generation = 0
     private val screenStateReceiver = object : BroadcastReceiver() {
@@ -76,9 +78,12 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
         }
 
         val mode = AppPreferences.mode(this)
+        val hasCameraPermission = mode != DetectionMode.CAMERA || hasCameraPermission()
         RestartNotifier.cancel(this)
-        startInForeground(mode)
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        startInForeground(mode, hasCameraPermission)
+        if (!lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        }
         startMonitoring(mode)
         return if (mode == DetectionMode.PROXIMITY) START_STICKY else START_NOT_STICKY
     }
@@ -95,7 +100,9 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
         monitoringMode = null
         isRunning = false
         activeMode = null
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        }
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         super.onDestroy()
     }
@@ -120,21 +127,19 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY, true)
             ?: sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
         if (sensor == null) {
-            fail("Questo tablet non dispone di un sensore di prossimità.")
+            fail(getString(R.string.error_no_proximity_sensor))
             return
         }
 
         activeSensor = sensor
         if (!sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)) {
-            fail("Impossibile avviare il sensore di prossimità.")
+            fail(getString(R.string.error_proximity_start_failed))
         }
     }
 
     private fun startCameraMonitoring(expectedGeneration: Int) {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            fail("Autorizzazione fotocamera non concessa.")
+        if (!hasCameraPermission()) {
+            fail(getString(R.string.error_camera_permission_missing))
             return
         }
 
@@ -172,7 +177,12 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
                     analysis
                 )
             } catch (error: Exception) {
-                fail("Fotocamera frontale non disponibile: ${error.message ?: "errore sconosciuto"}")
+                fail(
+                    getString(
+                        R.string.error_camera_unavailable,
+                        error.message ?: getString(R.string.error_unknown)
+                    )
+                )
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -185,6 +195,7 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
+    @Synchronized
     private fun attemptWake() {
         val now = SystemClock.elapsedRealtime()
         if (now < pauseUntilElapsed) return
@@ -195,18 +206,24 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
         }
     }
 
-    private fun startInForeground(mode: DetectionMode) {
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun startInForeground(mode: DetectionMode, hasCameraPermission: Boolean) {
         val notification = buildNotification(mode)
+        val useCameraFgs = mode == DetectionMode.CAMERA && hasCameraPermission
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
-                val type = when (mode) {
-                    DetectionMode.CAMERA -> ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-                    DetectionMode.PROXIMITY -> ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                val type = if (useCameraFgs) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 }
                 startForeground(NOTIFICATION_ID, notification, type)
             }
 
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mode == DetectionMode.CAMERA ->
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && useCameraFgs ->
                 startForeground(
                     NOTIFICATION_ID,
                     notification,
@@ -231,29 +248,35 @@ class WakeMonitorService : Service(), LifecycleOwner, SensorEventListener {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val modeLabel = when (mode) {
-            DetectionMode.CAMERA -> "Fotocamera attiva · elaborazione locale"
-            DetectionMode.PROXIMITY -> "Sensore di prossimità attivo"
+            DetectionMode.CAMERA -> getString(R.string.service_mode_camera)
+            DetectionMode.PROXIMITY -> getString(R.string.service_mode_proximity)
         }
 
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Tablet Wake è attivo")
+            .setContentTitle(getString(R.string.service_notification_title))
             .setContentText(modeLabel)
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_SERVICE)
-            .addAction(Notification.Action.Builder(null, "Ferma", stopIntent).build())
+            .addAction(
+                Notification.Action.Builder(
+                    null,
+                    getString(R.string.service_action_stop),
+                    stopIntent
+                ).build()
+            )
             .build()
     }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Rilevamento risveglio",
+            getString(R.string.service_channel_name),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Mostra quando il rilevamento locale è attivo"
+            description = getString(R.string.service_channel_description)
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)

@@ -38,6 +38,11 @@ object AppUpdater {
     private const val UPDATE_JOB_ID = 78
     private const val CHECK_INTERVAL_MS = 24L * 60L * 60L * 1_000L
     private val executor = Executors.newSingleThreadExecutor()
+    private val sha256Regex = Regex("^[0-9a-fA-F]{64}$")
+
+    internal fun runAsync(task: () -> Unit) {
+        executor.execute(task)
+    }
 
     fun configurePeriodicChecks(context: Context): Boolean = runCatching {
         val appContext = context.applicationContext
@@ -110,7 +115,7 @@ object AppUpdater {
                 versionCode = json.getLong("versionCode"),
                 versionName = json.getString("versionName"),
                 apkUrl = apkUrl,
-                sha256 = json.optString("sha256").takeIf { it.length == 64 }
+                sha256 = json.optString("sha256").takeIf { sha256Regex.matches(it) }
             )
         } finally {
             connection.disconnect()
@@ -118,10 +123,21 @@ object AppUpdater {
     }
 
     private fun enqueueDownload(context: Context, manifest: UpdateManifest) {
-        if (AppPreferences.updateDownloadId(context) >= 0L) return
+        val manager = context.getSystemService(DownloadManager::class.java) ?: return
+        val existingId = AppPreferences.updateDownloadId(context)
+        if (existingId >= 0L) {
+            if (isDownloadActive(manager, existingId)) return
+            AppPreferences.clearUpdateDownload(context)
+        }
+
         val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: error("archivio download non disponibile")
         val fileName = "TabletWake-${manifest.versionName.replace(Regex("[^0-9A-Za-z._-]"), "_")}.apk"
+        directory.listFiles { file ->
+            file.isFile && file.name.startsWith("TabletWake-") && file.name.endsWith(".apk") &&
+                file.name != fileName
+        }?.forEach { it.delete() }
+
         val destination = File(directory, fileName)
         if (destination.exists() && !destination.delete()) {
             error("impossibile sostituire il download precedente")
@@ -138,8 +154,19 @@ object AppUpdater {
                 Environment.DIRECTORY_DOWNLOADS,
                 fileName
             )
-        val id = context.getSystemService(DownloadManager::class.java).enqueue(request)
+        val id = manager.enqueue(request)
         AppPreferences.setUpdateDownload(context, id, destination.absolutePath, manifest.sha256)
+    }
+
+    private fun isDownloadActive(manager: DownloadManager, downloadId: Long): Boolean {
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        return manager.query(query)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use false
+            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            status == DownloadManager.STATUS_PENDING ||
+                status == DownloadManager.STATUS_RUNNING ||
+                status == DownloadManager.STATUS_PAUSED
+        } ?: false
     }
 
     private data class UpdateManifest(
@@ -171,19 +198,37 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
             return
         }
 
-        val manager = context.getSystemService(DownloadManager::class.java)
-        val query = DownloadManager.Query().setFilterById(expectedId)
-        manager.query(query).use { cursor ->
-            if (!cursor.moveToFirst() || cursor.status() != DownloadManager.STATUS_SUCCESSFUL) {
-                AppPreferences.clearUpdateDownload(context)
-                return
+        val appContext = context.applicationContext
+        val pendingResult = goAsync()
+        AppUpdater.runAsync {
+            try {
+                handleCompletedDownload(appContext, expectedId)
+            } finally {
+                pendingResult.finish()
             }
         }
+    }
 
-        val path = AppPreferences.updateDownloadPath(context) ?: return
+    private fun handleCompletedDownload(context: Context, expectedId: Long) {
+        val manager = context.getSystemService(DownloadManager::class.java)
+        val query = DownloadManager.Query().setFilterById(expectedId)
+        val succeeded = manager?.query(query)?.use { cursor ->
+            cursor.moveToFirst() && cursor.status() == DownloadManager.STATUS_SUCCESSFUL
+        } ?: false
+        if (!succeeded) {
+            AppPreferences.clearUpdateDownload(context)
+            return
+        }
+
+        val path = AppPreferences.updateDownloadPath(context)
+        if (path == null) {
+            AppPreferences.clearUpdateDownload(context)
+            return
+        }
+
         val apk = File(path)
         val expectedHash = AppPreferences.updateSha256(context)
-        if (!apk.isFile || expectedHash != null && sha256(apk) != expectedHash.lowercase()) {
+        if (!apk.isFile || (expectedHash != null && sha256(apk) != expectedHash.lowercase())) {
             apk.delete()
             AppPreferences.clearUpdateDownload(context)
             showFailure(context)
@@ -212,7 +257,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
 
     private fun showInstallNotification(context: Context, apk: File) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        createChannel(manager)
+        createChannel(context, manager)
         val uri = FileProvider.getUriForFile(
             context,
             "${context.packageName}.fileprovider",
@@ -229,8 +274,8 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         )
         val notification = Notification.Builder(context, UPDATE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Aggiornamento pronto")
-            .setContentText("Tocca per installare la nuova versione di Tablet Wake.")
+            .setContentTitle(context.getString(R.string.update_ready_title))
+            .setContentText(context.getString(R.string.update_ready_text))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
@@ -239,24 +284,24 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
 
     private fun showFailure(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        createChannel(manager)
+        createChannel(context, manager)
         val notification = Notification.Builder(context, UPDATE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Aggiornamento non valido")
-            .setContentText("Il controllo di integrità dell’APK non è riuscito.")
+            .setContentTitle(context.getString(R.string.update_invalid_title))
+            .setContentText(context.getString(R.string.update_invalid_text))
             .setAutoCancel(true)
             .build()
         runCatching { manager.notify(UPDATE_NOTIFICATION_ID, notification) }
     }
 
-    private fun createChannel(manager: NotificationManager) {
+    private fun createChannel(context: Context, manager: NotificationManager) {
         manager.createNotificationChannel(
             NotificationChannel(
                 UPDATE_CHANNEL_ID,
-                "Aggiornamenti Tablet Wake",
+                context.getString(R.string.update_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Download e installazione degli aggiornamenti"
+                description = context.getString(R.string.update_channel_description)
             }
         )
     }

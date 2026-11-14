@@ -8,6 +8,7 @@ class MotionDetector(sensitivity: Int) {
     private var consecutiveMotionFrames = 0
 
     fun analyze(frame: IntArray): Boolean {
+        if (frame.isEmpty()) return false
         val background = baseline
         if (background == null || background.size != frame.size) {
             baseline = FloatArray(frame.size) { frame[it].toFloat() }

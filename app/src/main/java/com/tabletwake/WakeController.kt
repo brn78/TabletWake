@@ -6,9 +6,11 @@ import android.os.Looper
 import android.os.PowerManager
 
 object WakeController {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     @Suppress("DEPRECATION")
     fun wakeScreen(context: Context): Boolean {
-        val powerManager = context.getSystemService(PowerManager::class.java)
+        val powerManager = context.getSystemService(PowerManager::class.java) ?: return false
         if (powerManager.isInteractive) return false
 
         val wakeLock = powerManager.newWakeLock(
@@ -19,8 +21,10 @@ object WakeController {
         )
 
         wakeLock.acquire(3_000L)
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (wakeLock.isHeld) wakeLock.release()
+        mainHandler.postDelayed({
+            runCatching {
+                if (wakeLock.isHeld) wakeLock.release()
+            }
         }, 900L)
         return true
     }

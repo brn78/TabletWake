@@ -1,5 +1,15 @@
 # Cronologia versioni
 
+## 1.1.2 — 14 novembre 2026
+
+- Aggiornamenti: un download interrotto non blocca più i controlli successivi, gli APK scaricati in precedenza vengono eliminati e la verifica dell’APK avviene fuori dal thread principale.
+- L’hash SHA-256 del manifest viene accettato solo se è esadecimale e di 64 caratteri.
+- Fotocamera: analisi dei fotogrammi più robusta con dimensioni non valide o indici fuori dal buffer, senza allocare memoria a ogni fotogramma.
+- Servizio: avvio in primo piano corretto anche senza permesso fotocamera, ciclo di vita senza transizioni ripetute e risveglio protetto dalle chiamate concorrenti.
+- Interfaccia: il pulsante degli aggiornamenti resta disattivato durante il controllo e il pulsante di avvio si disattiva se il tablet non ha né fotocamera frontale né sensore di prossimità.
+- Testi di notifiche ed errori spostati nelle risorse dell’app.
+- Nuovi test per il rilevatore di movimento.
+
 ## 1.1.1 — 17 agosto 2026
 
 - Corretto il crash all’avvio riscontrato su alcuni firmware Android.

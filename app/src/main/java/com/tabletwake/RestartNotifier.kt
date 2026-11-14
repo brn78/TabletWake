@@ -16,10 +16,10 @@ object RestartNotifier {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Riattivazione dopo il riavvio",
+                context.getString(R.string.restart_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Richiede un tocco quando Android non consente il riavvio automatico"
+                description = context.getString(R.string.restart_channel_description)
             }
         )
 
@@ -36,19 +36,27 @@ object RestartNotifier {
             Intent(context, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val text = if (cameraRequiresTap) {
-            "Tocca Riattiva: Android richiede una conferma per riaprire la fotocamera."
-        } else {
-            "Tocca Riattiva per ripristinare il rilevamento."
-        }
+        val text = context.getString(
+            if (cameraRequiresTap) {
+                R.string.restart_notification_camera
+            } else {
+                R.string.restart_notification_generic
+            }
+        )
         val notification = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Riattiva Tablet Wake")
+            .setContentTitle(context.getString(R.string.restart_notification_title))
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setContentIntent(openIntent)
             .setAutoCancel(true)
-            .addAction(Notification.Action.Builder(null, "Riattiva", startIntent).build())
+            .addAction(
+                Notification.Action.Builder(
+                    null,
+                    context.getString(R.string.restart_action_resume),
+                    startIntent
+                ).build()
+            )
             .build()
 
         runCatching { manager.notify(NOTIFICATION_ID, notification) }
