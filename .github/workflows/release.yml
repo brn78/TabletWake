@@ -73,13 +73,16 @@ jobs:
 
       - name: Verifica la firma e calcola lo SHA-256
         run: |
+          set -o pipefail
           APK=app/build/outputs/apk/release/app-release.apk
           if [ ! -f "$APK" ]; then
             echo "::error::APK firmato non trovato: $APK"
             exit 1
           fi
           BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          echo "apksigner: $BUILD_TOOLS/apksigner"
+          # L'esito lo decide apksigner (pipefail); il certificato resta nel log.
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee apksigner.txt
           cp "$APK" TabletWake.apk
           echo "SHA256=$(sha256sum TabletWake.apk | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
 
